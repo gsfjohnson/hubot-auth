@@ -5,12 +5,7 @@
 #   HUBOT_AUTH_ADMIN - A comma separate list of user IDs
 #
 # Commands:
-#   hubot <user> has <role> role - Assigns a role to a user
-#   hubot <user> doesn't have <role> role - Removes a role from a user
-#   hubot what roles does <user> have - Find out what roles a user has
-#   hubot what roles do I have - Find out what roles you have
-#   hubot who has <role> role - Find out who has the given role
-#   hubot list assigned roles - List all assigned roles
+#   hubot auth help - auth commands
 #
 # Notes:
 #   * Call the method: robot.auth.hasRole(msg.envelope.user,'<role>')
@@ -66,15 +61,33 @@ module.exports = (robot) ->
   robot.auth = new Auth
 
 
-  robot.respond /@?([^\s]+) ha(?:s|ve) (["'\w: -_]+) role/i, (msg) ->
-    name = msg.match[1].trim()
+  robot.respond /auth help$/, (msg) ->
+    robot.adapter.customMessage {
+      channel: msg.message.user.name,
+      text: "auth commands",
+      attachments: [
+        {
+          fields: [
+            { "title": "auth help", "value": "This helpful response!", "short": true }
+            ,{ "title": "auth add <user> to <role>", "value": "Role assignment.", "short": true }
+            ,{ "title": "auth remove <role> from <user>", "value": "Remove role from user.", "short": true }
+            ,{ "title": "auth list roles for <user>", "value": "List roles.", "short": true }
+            ,{ "title": "auth list users with <role>", "value": "List users.", "short": true }
+            ,{ "title": "auth list assigned roles", "value": "List roles.", "short": true }
+          ]
+        }
+      ]
+    }
+
+  robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
+    name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
 
     unless name.toLowerCase() in ['', 'who', 'what', 'where', 'when', 'why']
       unless robot.auth.isAdmin msg.message.user
         msg.reply "Sorry, only admins can assign roles."
       else
-        newRole = msg.match[2].trim().toLowerCase()
+        newRole = msg.match[1].trim().toLowerCase()
 
         user = robot.brain.userForName(name)
         return msg.reply "#{name} does not exist" unless user?
@@ -90,15 +103,16 @@ module.exports = (robot) ->
             user.roles.push(newRole)
             msg.reply "OK, #{name} has the '#{newRole}' role."
 
-  robot.respond /@?([^\s]+) (?:don['’]t|doesn['’]t|do not) have (["'\w: -_]+) role/i, (msg) ->
-    name = msg.match[1].trim()
+
+  robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
+    name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
 
     unless name.toLowerCase() in ['', 'who', 'what', 'where', 'when', 'why']
       unless robot.auth.isAdmin msg.message.user
         msg.reply "Sorry, only admins can remove roles."
       else
-        newRole = msg.match[2].trim().toLowerCase()
+        newRole = msg.match[1].trim().toLowerCase()
 
         user = robot.brain.userForName(name)
         return msg.reply "#{name} does not exist" unless user?
@@ -111,8 +125,9 @@ module.exports = (robot) ->
           user.roles = (role for role in user.roles when role isnt newRole)
           msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
 
-  robot.respond /what roles? do(es)? @?([^\s]+) have\?*$/i, (msg) ->
-    name = msg.match[2].trim()
+
+  robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
+    name = msg.match[1].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
     user = robot.brain.userForName(name)
     return msg.reply "#{name} does not exist" unless user?
@@ -123,7 +138,8 @@ module.exports = (robot) ->
     else
       msg.reply "#{name} has the following roles: #{userRoles.join(', ')}."
 
-  robot.respond /who has (["'\w: -_]+) role\?*$/i, (msg) ->
+
+  robot.respond /auth list users with (["'\w: -_]+)$/i, (msg) ->
     role = msg.match[1]
     userNames = robot.auth.usersWithRole(role) if role?
 
@@ -132,7 +148,8 @@ module.exports = (robot) ->
     else
       msg.reply "There are no people that have the '#{role}' role."
 
-  robot.respond /list assigned roles/i, (msg) ->
+
+  robot.respond /auth list assigned roles$/i, (msg) ->
     roles = []
     unless robot.auth.isAdmin msg.message.user
         msg.reply "Sorry, only admins can list assigned roles."
