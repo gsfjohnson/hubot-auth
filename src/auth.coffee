@@ -108,12 +108,15 @@ module.exports = (robot) ->
             msg.reply "OK, #{name} has the '#{newRole}' role."
 
   robot.respond /auth who(?:ami)?\s?@?([^\s]+)?$/i, (msg) ->
-    name = if msg.match[1]? then msg.match[1].trim() else msg.message.user.name
-    if name.toLowerCase() is 'i' then name = msg.message.user.name
-    user = robot.brain.userForName(name)
-    return msg.reply "#{name} does not exist" unless user?
+    if msg.match[1]?
+      name = msg.match[1].trim()
+      if name.toLowerCase() is 'i' then name = msg.message.user.name
+      user = robot.brain.userForName(name)
+      return msg.reply "#{name} does not exist" unless user?
+    else
+      user = msg.message.user
 
-    return msg.reply "#{name} is #{user}"
+    return msg.reply "#{user.id}"
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
     name = msg.match[2].trim()
