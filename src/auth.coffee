@@ -107,7 +107,7 @@ module.exports = (robot) ->
             user.roles.push(newRole)
             msg.reply "OK, #{name} has the '#{newRole}' role."
 
-  robot.respond /auth who(?:ami)?\s?@?([^\s]+)?$/i, (msg) ->
+  robot.respond /auth who(?:ami|\sis|\sam)?\s?@?([^\s]+)?$/i, (msg) ->
     if msg.match[1]?
       name = msg.match[1].trim()
       if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -116,7 +116,7 @@ module.exports = (robot) ->
     else
       user = msg.message.user
 
-    return msg.reply "#{user.id}"
+    return msg.send "#{user.name} is #{user.id}"
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
     name = msg.match[2].trim()
