@@ -21,6 +21,8 @@
 config =
   admin_list: process.env.HUBOT_AUTH_ADMIN
 
+replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
+
 module.exports = (robot) ->
 
   unless config.admin_list?
@@ -62,22 +64,26 @@ module.exports = (robot) ->
 
 
   robot.respond /auth help$/, (msg) ->
-    robot.adapter.customMessage {
-      channel: msg.message.user.name,
-      text: "auth commands",
-      attachments: [
-        {
-          fields: [
-            { "title": "auth help", "value": "This helpful response!", "short": true }
-            ,{ "title": "auth add <user> to <role>", "value": "Role assignment.", "short": true }
-            ,{ "title": "auth remove <role> from <user>", "value": "Remove role from user.", "short": true }
-            ,{ "title": "auth list roles for <user>", "value": "List roles.", "short": true }
-            ,{ "title": "auth list users with <role>", "value": "List users.", "short": true }
-            ,{ "title": "auth list assigned roles", "value": "List roles.", "short": true }
-          ]
-        }
-      ]
-    }
+    cmds = []
+    arr = [
+      "auth help - this helpful response"
+      "auth add <user> to <role> - role assignment"
+      "auth remove <role> from <user> - remove role from user"
+      "auth list roles for <user> - list roles"
+      "auth list users with <role> - list users"
+      "auth list assigned roles - list roles"
+    ]
+
+    for str in arr
+      cmd = str.split " - "
+      cmds.push "`#{cmd[0]}` - #{cmd[1]}"
+    cmds.join "\n"
+
+    if replyInPrivate and msg.message?.user?.name?
+      msg.reply 'replied to you in private!'
+      robot.send {room: msg.message?.user?.name}, emit
+    else
+      msg.reply emit
 
   robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
     name = msg.match[2].trim()
