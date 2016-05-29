@@ -66,7 +66,6 @@ module.exports = (robot) ->
   robot.respond /auth help$/, (msg) ->
     cmds = []
     arr = [
-      "auth help - this helpful response"
       "auth add <user> to <role> - role assignment"
       "auth remove <role> from <user> - remove role from user"
       "auth list roles for <user> - list roles"
