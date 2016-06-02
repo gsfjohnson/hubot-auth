@@ -21,16 +21,7 @@
 config =
   admin_list: process.env.HUBOT_AUTH_ADMIN
 
-modname = auth
-authrole = admin
-
 replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
-
-isAuthorized = (robot, msg) ->
-  if robot.auth.isAdmin(msg.envelope.user)
-    return true
-  msg.send {room: msg.message.user.name}, "Not authorized.  Missing `#{authrole}` role."
-  return false
 
 module.exports = (robot) ->
 
@@ -75,11 +66,11 @@ module.exports = (robot) ->
   robot.respond /auth help$/, (msg) ->
     cmds = []
     arr = [
-      "#{modname} add <role> to <user> - role assignment"
-      "#{modname} remove <role> from <user> - remove role from user"
-      "#{modname} list roles for <user> - list roles"
-      "#{modname} list users with <role> - list users"
-      "#{modname} list assigned roles - list roles"
+      "auth add <role> to <user> - role assignment"
+      "auth remove <role> from <user> - remove role from user"
+      "auth list roles for <user> - list roles"
+      "auth list users with <role> - list users"
+      "auth list assigned roles - list roles"
     ]
 
     for str in arr
@@ -93,10 +84,11 @@ module.exports = (robot) ->
       msg.reply cmds.join "\n"
 
   robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
-    return unless isAuthorized robot, msg
-
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
+
+    unless robot.auth.isAdmin msg.message.user
+      return msg.reply "Sorry, only admins can assign roles."
 
     newRole = msg.match[1].trim().toLowerCase()
 
@@ -126,10 +118,11 @@ module.exports = (robot) ->
     return msg.send "#{user.name} is #{user.id}"
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
-    return unless isAuthorized robot, msg
-
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
+
+    unless robot.auth.isAdmin msg.message.user
+      return msg.reply "Sorry, only admins can remove roles."
 
     newRole = msg.match[1].trim().toLowerCase()
 
@@ -143,7 +136,6 @@ module.exports = (robot) ->
     myRoles = msg.message.user.roles or []
     user.roles = (role for role in user.roles when role isnt newRole)
     return msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
-
 
   robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
     name = msg.match[1].trim()
@@ -169,9 +161,9 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list assigned roles$/i, (msg) ->
-    return unless isAuthorized robot, msg
-
     roles = []
+    unless robot.auth.isAdmin msg.message.user
+      return msg.reply "Sorry, only admins can list assigned roles."
 
     for i, user of robot.brain.data.users when user.roles
       roles.push role for role in user.roles when role not in roles
