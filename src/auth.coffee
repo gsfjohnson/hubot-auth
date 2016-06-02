@@ -23,6 +23,11 @@ config =
 
 replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
 
+isAuthorized = (robot, msg) ->
+  return true if robot.auth.isAdmin(msg.envelope.user)
+  msg.send {room: msg.message.user.name}, "Only admins allowed to make auth changes."
+  return false
+
 module.exports = (robot) ->
 
   unless config.admin_list?
@@ -70,7 +75,7 @@ module.exports = (robot) ->
       "auth remove <role> from <user> - remove role from user"
       "auth list roles for <user> - list roles"
       "auth list users with <role> - list users"
-      "auth list assigned roles - list roles"
+      "auth list roles - list roles"
     ]
 
     for str in arr
@@ -87,8 +92,7 @@ module.exports = (robot) ->
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
 
-    unless robot.auth.isAdmin msg.message.user
-      return msg.reply "Sorry, only admins can assign roles."
+    return unless isAuthorized robot, msg
 
     newRole = msg.match[1].trim().toLowerCase()
 
@@ -160,7 +164,7 @@ module.exports = (robot) ->
     return msg.reply "There are no people that have the '#{role}' role."
 
 
-  robot.respond /auth list assigned roles$/i, (msg) ->
+  robot.respond /auth list roles$/i, (msg) ->
     roles = []
     unless robot.auth.isAdmin msg.message.user
       return msg.reply "Sorry, only admins can list assigned roles."
