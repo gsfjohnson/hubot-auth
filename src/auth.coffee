@@ -21,7 +21,16 @@
 config =
   admin_list: process.env.HUBOT_AUTH_ADMIN
 
+modname = auth
+authrole = admin
+
 replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
+
+isAuthorized = (robot, msg) ->
+  if robot.auth.isAdmin(msg.envelope.user)
+    return true
+  msg.send {room: msg.message.user.name}, "Not authorized.  Missing `#{authrole}` role."
+  return false
 
 module.exports = (robot) ->
 
@@ -66,11 +75,11 @@ module.exports = (robot) ->
   robot.respond /auth help$/, (msg) ->
     cmds = []
     arr = [
-      "auth add <role> to <user> - role assignment"
-      "auth remove <role> from <user> - remove role from user"
-      "auth list roles for <user> - list roles"
-      "auth list users with <role> - list users"
-      "auth list assigned roles - list roles"
+      "#{modname} add <role> to <user> - role assignment"
+      "#{modname} remove <role> from <user> - remove role from user"
+      "#{modname} list roles for <user> - list roles"
+      "#{modname} list users with <role> - list users"
+      "#{modname} list assigned roles - list roles"
     ]
 
     for str in arr
@@ -84,28 +93,26 @@ module.exports = (robot) ->
       msg.reply cmds.join "\n"
 
   robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
+    return unless isAuthorized robot, msg
+
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
 
-    unless name.toLowerCase() in ['', 'who', 'what', 'where', 'when', 'why']
-      unless robot.auth.isAdmin msg.message.user
-        msg.reply "Sorry, only admins can assign roles."
-      else
-        newRole = msg.match[1].trim().toLowerCase()
+    newRole = msg.match[1].trim().toLowerCase()
 
-        user = robot.brain.userForName(name)
-        return msg.reply "#{name} does not exist" unless user?
-        user.roles or= []
+    user = robot.brain.userForName(name)
+    return msg.reply "#{name} does not exist" unless user?
+    user.roles or= []
 
-        if newRole in user.roles
-          msg.reply "#{name} already has the '#{newRole}' role."
-        else
-          if newRole is 'admin'
-            msg.reply "Sorry, the 'admin' role can only be defined in the HUBOT_AUTH_ADMIN env variable."
-          else
-            myRoles = msg.message.user.roles or []
-            user.roles.push(newRole)
-            msg.reply "OK, #{name} has the '#{newRole}' role."
+    if newRole in user.roles
+      return msg.reply "#{name} already has the '#{newRole}' role."
+
+    if newRole is 'admin'
+      return msg.reply "Sorry, the 'admin' role can only be defined in the HUBOT_AUTH_ADMIN env variable."
+
+    myRoles = msg.message.user.roles or []
+    user.roles.push(newRole)
+    msg.reply "OK, #{name} has the '#{newRole}' role."
 
   robot.respond /auth who(?:ami|\sis|\sam)?\s?@?([^\s]+)?$/i, (msg) ->
     if msg.match[1]?
@@ -119,25 +126,23 @@ module.exports = (robot) ->
     return msg.send "#{user.name} is #{user.id}"
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
+    return unless isAuthorized robot, msg
+
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
 
-    unless name.toLowerCase() in ['', 'who', 'what', 'where', 'when', 'why']
-      unless robot.auth.isAdmin msg.message.user
-        msg.reply "Sorry, only admins can remove roles."
-      else
-        newRole = msg.match[1].trim().toLowerCase()
+    newRole = msg.match[1].trim().toLowerCase()
 
-        user = robot.brain.userForName(name)
-        return msg.reply "#{name} does not exist" unless user?
-        user.roles or= []
+    user = robot.brain.userForName(name)
+    return msg.reply "#{name} does not exist" unless user?
+    user.roles or= []
 
-        if newRole is 'admin'
-          msg.reply "Sorry, the 'admin' role can only be removed from the HUBOT_AUTH_ADMIN env variable."
-        else
-          myRoles = msg.message.user.roles or []
-          user.roles = (role for role in user.roles when role isnt newRole)
-          msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
+    if newRole is 'admin'
+      return msg.reply "Sorry, the 'admin' role can only be removed from the HUBOT_AUTH_ADMIN env variable."
+
+    myRoles = msg.message.user.roles or []
+    user.roles = (role for role in user.roles when role isnt newRole)
+    return msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
 
 
   robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
@@ -148,9 +153,9 @@ module.exports = (robot) ->
     userRoles = robot.auth.userRoles(user)
 
     if userRoles.length == 0
-      msg.reply "#{name} has no roles."
-    else
-      msg.reply "#{name} has the following roles: #{userRoles.join(', ')}."
+      return msg.reply "#{name} has no roles."
+
+    return msg.reply "#{name} has the following roles: #{userRoles.join(', ')}."
 
 
   robot.respond /auth list users with (["'\w: -_]+)$/i, (msg) ->
@@ -158,19 +163,19 @@ module.exports = (robot) ->
     userNames = robot.auth.usersWithRole(role) if role?
 
     if userNames.length > 0
-      msg.reply "The following people have the '#{role}' role: #{userNames.join(', ')}"
-    else
-      msg.reply "There are no people that have the '#{role}' role."
+      return msg.reply "The following people have the '#{role}' role: #{userNames.join(', ')}"
+
+    return msg.reply "There are no people that have the '#{role}' role."
 
 
   robot.respond /auth list assigned roles$/i, (msg) ->
+    return unless isAuthorized robot, msg
+
     roles = []
-    unless robot.auth.isAdmin msg.message.user
-        msg.reply "Sorry, only admins can list assigned roles."
-    else
-        for i, user of robot.brain.data.users when user.roles
-            roles.push role for role in user.roles when role not in roles
-        if roles.length > 0
-            msg.reply "The following roles are available: #{roles.join(', ')}"
-        else
-            msg.reply "No roles to list."
+
+    for i, user of robot.brain.data.users when user.roles
+      roles.push role for role in user.roles when role not in roles
+    if roles.length > 0
+      return msg.reply "The following roles are available: #{roles.join(', ')}"
+
+    return msg.reply "No roles to list."
