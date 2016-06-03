@@ -49,7 +49,7 @@ module.exports = (robot) ->
       user.id.toString() in admins
 
     isSudo: (user) ->
-      user.id.toString() of sudoed
+      user.name.toString() of sudoed
 
     hasRole: (user, roles) ->
       userRoles = @userRoles(user)
