@@ -18,14 +18,20 @@
 #     correctly identify a user. Names were insecure as a user could impersonate
 #     a user
 
+moment = require 'moment'
+
 config =
   admin_list: process.env.HUBOT_AUTH_ADMIN
 
+sudoed = {}
+
 replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
 
-isAuthorized = (robot, msg) ->
+isAuthorized = (robot, msg, roles=['admin']) ->
+  roles = [roles] if typeof roles is 'string'
   return true if robot.auth.isAdmin(msg.envelope.user)
-  msg.send {room: msg.message.user.name}, "Only admins allowed to make auth changes."
+  return true if robot.auth.hasRole(msg.envelope.user,roles)
+  msg.send {room: msg.message.user.name}, "Only #{roles.split ', '} allowed this command."
   return false
 
 module.exports = (robot) ->
@@ -41,6 +47,9 @@ module.exports = (robot) ->
   class Auth
     isAdmin: (user) ->
       user.id.toString() in admins
+
+    isSudo: (user) ->
+      user.id.toString() of sudoed
 
     hasRole: (user, roles) ->
       userRoles = @userRoles(user)
@@ -179,3 +188,15 @@ module.exports = (robot) ->
       return msg.reply "The following roles are available: #{roles.join(', ')}"
 
     return msg.reply "No roles to list."
+
+  robot.respond /auth sudo$/i, (msg) ->
+    return unless isAuthorized robot, msg, 'sudo'
+
+    user = msg.message.user.name
+
+    if sudoed[user] and moment().isBefore(sudoed[user])
+      return msg.reply "Sudo already granted.  Expires `#{sudoed[user]}`."
+
+    if ! sudoed[user] or moment().isAfter(sudoed[user])
+      sudoed[user] = new moment()
+      return msg.reply "Sudo granted.  Expires `#{sudoed[user]}`."
