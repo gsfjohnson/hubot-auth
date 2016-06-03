@@ -87,6 +87,7 @@ module.exports = (robot) ->
       "auth list roles for <user> - list roles"
       "auth list users with <role> - list users"
       "auth list roles - list roles"
+      "auth sudo - escalate"
     ]
 
     for str in arr
