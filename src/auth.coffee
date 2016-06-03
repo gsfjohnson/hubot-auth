@@ -49,7 +49,9 @@ module.exports = (robot) ->
       user.id.toString() in admins
 
     isSudo: (user) ->
-      user.name.toString() of sudoed
+      return false unless user.name of sudoed
+      return false unless moment().isBefore(sudoed[user.name])
+      return true
 
     hasRole: (user, roles) ->
       userRoles = @userRoles(user)
@@ -198,5 +200,5 @@ module.exports = (robot) ->
       return msg.reply "Sudo already granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
 
     if ! sudoed[user] or moment().isAfter(sudoed[user])
-      sudoed[user] = new moment()
+      sudoed[user] = new moment().add(1,'hours')
       return msg.reply "Sudo granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
