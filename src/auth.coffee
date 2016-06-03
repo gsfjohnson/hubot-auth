@@ -30,11 +30,12 @@ if process.env.HUBOT_AUTH_DUO_IKEY and process.env.HUBOT_AUTH_DUO_SKEY and proce
   config['duo_ikey'] = process.env.HUBOT_AUTH_DUO_IKEY
   config['duo_skey'] = process.env.HUBOT_AUTH_DUO_SKEY
   config['duo_host'] = process.env.HUBOT_AUTH_DUO_HOST
-  duoclient = new duo_api.Client(parsed.ikey, parsed.skey, parsed.host);
+  duoclient = new duo_api.Client(config.duo_ikey, config.duo_skey, config.duo_host);
   duoclient.jsonApiCall 'GET', '/auth/v2/check', {}, (res) ->
     unless res.stat is 'OK'
       console.error 'duo api check failed: '+ res.message
       process.exit(1)
+    console.log JSON.stringify(res)
 
 sudoed = {}
 
@@ -45,7 +46,7 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   roles = [roles] if typeof roles is 'string'
   return true if robot.auth.isAdmin(msg.envelope.user)
   return true if robot.auth.hasRole(msg.envelope.user,roles)
-  msg.send {room: msg.message.user.name}, "Only #{roles.split ', '} allowed this command."
+  msg.send {room: msg.message.user.name}, "Only users with #{roles.join ', '} role(s) allowed this command."
   return false
 
 grantSudo = (msg, user) ->
@@ -221,9 +222,9 @@ module.exports = (robot) ->
     user = msg.message.user.name
 
     if config.duo
-      duoclient.jsonApiCall 'POST', '/auth/v2/check', { username: user, factor: 'push', device: 'auto' }, (res) ->
+      duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: user, factor: 'push', device: 'auto' }, (res) ->
         unless res.result is "allow"
-          return msg.reply "duo api auth failed: #{res.status_msg}"
+          return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
         msg.reply "duo api auth success: `#{res.status}`\n```\n#{res.status_msg}\n```"
         return grantSudo(msg, user)
 
