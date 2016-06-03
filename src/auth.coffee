@@ -174,9 +174,9 @@ module.exports = (robot) ->
     userNames = robot.auth.usersWithRole(role) if role?
 
     if userNames.length > 0
-      return msg.reply "The following people have the '#{role}' role: #{userNames.join(', ')}"
+      return msg.reply "Users with `#{role}` role: `#{userNames.join('`, `')}`"
 
-    return msg.reply "There are no people that have the '#{role}' role."
+    return msg.reply "No one has `#{role}` role."
 
 
   robot.respond /auth list roles$/i, (msg) ->
