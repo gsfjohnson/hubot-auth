@@ -22,10 +22,24 @@ moment = require 'moment'
 
 config =
   admin_list: process.env.HUBOT_AUTH_ADMIN
+  duo: false
+
+if process.env.HUBOT_AUTH_DUO_IKEY and process.env.HUBOT_AUTH_DUO_SKEY and process.env.HUBOT_AUTH_DUO_HOST
+  duo_api = require 'duo_api'
+  config['duo'] = true
+  config['duo_ikey'] = process.env.HUBOT_AUTH_DUO_IKEY
+  config['duo_skey'] = process.env.HUBOT_AUTH_DUO_SKEY
+  config['duo_host'] = process.env.HUBOT_AUTH_DUO_HOST
+  duoclient = new duo_api.Client(parsed.ikey, parsed.skey, parsed.host);
+  duoclient.jsonApiCall 'GET', '/auth/v2/check', {}, (res) ->
+    unless res.stat is 'OK'
+      console.error 'duo api check failed: '+ res.message
+      process.exit(1)
 
 sudoed = {}
 
 replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
+
 
 isAuthorized = (robot, msg, roles=['admin']) ->
   roles = [roles] if typeof roles is 'string'
@@ -33,6 +47,15 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   return true if robot.auth.hasRole(msg.envelope.user,roles)
   msg.send {room: msg.message.user.name}, "Only #{roles.split ', '} allowed this command."
   return false
+
+grantSudo = (msg, user) ->
+  if sudoed[user] and moment().isBefore(sudoed[user])
+    return msg.reply "Sudo already granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
+
+  if ! sudoed[user] or moment().isAfter(sudoed[user])
+    sudoed[user] = new moment().add(1,'hours')
+    return msg.reply "Sudo granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
+
 
 module.exports = (robot) ->
 
@@ -197,9 +220,11 @@ module.exports = (robot) ->
 
     user = msg.message.user.name
 
-    if sudoed[user] and moment().isBefore(sudoed[user])
-      return msg.reply "Sudo already granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
+    if config.duo
+      duoclient.jsonApiCall 'POST', '/auth/v2/check', { username: user, factor: 'push', device: 'auto' }, (res) ->
+        unless res.result is "allow"
+          return msg.reply "duo api auth failed: #{res.status_msg}"
+        msg.reply "duo api auth success: `#{res.status}`\n```\n#{res.status_msg}\n```"
+        return grantSudo(msg, user)
 
-    if ! sudoed[user] or moment().isAfter(sudoed[user])
-      sudoed[user] = new moment().add(1,'hours')
-      return msg.reply "Sudo granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
+    return grantSudo(msg, user) unless config.duo
