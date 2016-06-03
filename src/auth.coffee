@@ -195,8 +195,8 @@ module.exports = (robot) ->
     user = msg.message.user.name
 
     if sudoed[user] and moment().isBefore(sudoed[user])
-      return msg.reply "Sudo already granted.  Expires `#{sudoed[user]}`."
+      return msg.reply "Sudo already granted.  Expires `#{sudoed[user].format()}`."
 
     if ! sudoed[user] or moment().isAfter(sudoed[user])
       sudoed[user] = new moment()
-      return msg.reply "Sudo granted.  Expires `#{sudoed[user]}`."
+      return msg.reply "Sudo granted.  Expires `#{sudoed[user].format()}`."
