@@ -35,7 +35,6 @@ if process.env.HUBOT_AUTH_DUO_IKEY and process.env.HUBOT_AUTH_DUO_SKEY and proce
     unless res.stat is 'OK'
       console.error 'duo api check failed: '+ res.message
       process.exit(1)
-    console.log JSON.stringify(res)
 
 sudoed = {}
 
@@ -222,10 +221,19 @@ module.exports = (robot) ->
     user = msg.message.user.name
 
     if config.duo
-      duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: user, factor: 'push', device: 'auto' }, (res) ->
-        unless res.result is "allow"
-          return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
-        msg.reply "duo api auth success: `#{res.status}`\n```\n#{res.status_msg}\n```"
-        return grantSudo(msg, user)
-
-    return grantSudo(msg, user) unless config.duo
+      duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: user }, (r) ->
+        res = r.response
+        if res.result is "enroll"
+          return msg.reply "Duo reports: `#{res.status_msg}`\nEnrollment portal: #{res.enroll_portal_url}"
+        if res.result is "allow"
+          return grantSudo(msg, user)
+        if res.result is "auth"
+          return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: user, factor: 'auto', device: 'auto' }, (r) ->
+            res = r.response
+            unless res.result is "allow"
+              return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
+            msg.reply "Duo reports: `#{res.status_msg}`"
+            return grantSudo(msg, user)
+        return msg.reply "Duo reports: result=`#{res.result}` and status_msg=`#{res.status_message}`\n```\n#{JSON.stringify(res)}\n```"
+    else
+      return grantSudo(msg, user)
