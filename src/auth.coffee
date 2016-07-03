@@ -48,12 +48,13 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   msg.send {room: msg.message.user.name}, "Only users with #{roles.join ', '} role(s) allowed this command."
   return false
 
-grantSudo = (msg, user) ->
+grantSudo = (robot, msg, user) ->
   if sudoed[user] and moment().isBefore(sudoed[user])
     return msg.reply "Sudo already granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
 
   if ! sudoed[user] or moment().isAfter(sudoed[user])
     sudoed[user] = new moment().add(1,'hours')
+    robot.logger.info "#{msg.envelope.user.name} granted sudo until #{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}"
     return msg.reply "Sudo granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
 
 
@@ -143,7 +144,10 @@ module.exports = (robot) ->
 
     myRoles = msg.message.user.roles or []
     user.roles.push(newRole)
-    msg.reply "OK, #{name} has the '#{newRole}' role."
+
+    robot.logger.info "#{msg.envelope.user.name} added '#{newRole}' role to '#{name}' user"
+    
+    return msg.reply "OK, #{name} has the '#{newRole}' role."
 
   robot.respond /auth who(?:ami|\sis|\sam)?\s?@?([^\s]+)?$/i, (msg) ->
     if msg.match[1]?
@@ -173,6 +177,9 @@ module.exports = (robot) ->
 
     myRoles = msg.message.user.roles or []
     user.roles = (role for role in user.roles when role isnt newRole)
+
+    robot.logger.info "#{msg.envelope.user.name} removed '#{newRole}' role from '#{name}' user"
+
     return msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
 
 
@@ -218,22 +225,22 @@ module.exports = (robot) ->
   robot.respond /auth sudo$/i, (msg) ->
     return unless isAuthorized robot, msg, 'sudo'
 
-    user = msg.message.user.name
+    name = msg.message.user.name
 
     if config.duo
-      duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: user }, (r) ->
+      duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
         res = r.response
         if res.result is "enroll"
           return msg.reply "Duo reports: `#{res.status_msg}`\nEnrollment portal: #{res.enroll_portal_url}"
         if res.result is "allow"
-          return grantSudo(msg, user)
+          return grantSudo(robot, msg, name)
         if res.result is "auth"
-          return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: user, factor: 'auto', device: 'auto' }, (r) ->
+          return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
             res = r.response
             unless res.result is "allow"
               return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
             msg.reply "Duo reports: `#{res.status_msg}`"
-            return grantSudo(msg, user)
+            return grantSudo(robot, msg, name)
         return msg.reply "Duo reports: result=`#{res.result}` and status_msg=`#{res.status_message}`\n```\n#{JSON.stringify(res)}\n```"
     else
-      return grantSudo(msg, user)
+      return grantSudo(robot, msg, name)
