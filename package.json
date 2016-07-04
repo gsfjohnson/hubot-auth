@@ -34,7 +34,7 @@
   "dependencies": {
     "coffee-script": "^1.10.0"
     ,"moment": "^2.13.0"
-    ,"duo_api": "git://github.com/duosecurity/duo_api_nodejs#master"
+    ,"duo_api": "git://github.com/gsfjohnson/duo_api_nodejs#master"
   },
   "devDependencies": {
     "chai": "^3.5.0",
