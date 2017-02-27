@@ -20,48 +20,67 @@
 
 moment = require 'moment'
 
-config =
-  admin_list: process.env.HUBOT_AUTH_ADMIN
-  duo: false
+modulename = 'auth'
 
-if process.env.HUBOT_AUTH_DUO_IKEY and process.env.HUBOT_AUTH_DUO_SKEY and process.env.HUBOT_AUTH_DUO_HOST
+config =
+  duo: 0
+  replyInPrivate: false
+
+if process.env.HUBOT_AUTH_ADMIN
+  config.admin_list = process.env.HUBOT_AUTH_ADMIN
+else
+  console.warn "#{modulename}: HUBOT_AUTH_ADMIN environment variable not set."
+
+if process.env.HUBOT_AUTH_DUO_IKEY
+  config.duo_ikey = process.env.HUBOT_AUTH_DUO_IKEY
+  config.duo++
+
+if process.env.HUBOT_AUTH_DUO_SKEY
+  config.duo_skey = process.env.HUBOT_AUTH_DUO_SKEY
+  config.duo++
+
+if process.env.HUBOT_AUTH_DUO_HOST
+  config.duo_host = process.env.HUBOT_AUTH_DUO_HOST
+  config.duo++
+
+if config.duo == 3
   duo_api = require 'duo_api'
-  config['duo'] = true
-  config['duo_ikey'] = process.env.HUBOT_AUTH_DUO_IKEY
-  config['duo_skey'] = process.env.HUBOT_AUTH_DUO_SKEY
-  config['duo_host'] = process.env.HUBOT_AUTH_DUO_HOST
-  duoclient = new duo_api.Client(config.duo_ikey, config.duo_skey, config.duo_host);
+  config.duo = true
+  duoclient = new duo_api.Client config.duo_ikey, config.duo_skey,
+    config.duo_host
   duoclient.jsonApiCall 'GET', '/auth/v2/check', {}, (res) ->
     unless res.stat is 'OK'
       console.error 'duo api check failed: '+ res.message
       process.exit(1)
+  console.info "#{modulename}: duo 2fa enabled for sudo"
 
 sudoed = {}
 
-replyInPrivate = process.env.HUBOT_HELP_REPLY_IN_PRIVATE
+if process.env.HUBOT_PRIVATE_HELP
+  config.replyInPrivate = process.env.HUBOT_PRIVATE_HELP
 
 
 isAuthorized = (robot, msg, roles=['admin']) ->
   roles = [roles] if typeof roles is 'string'
   return true if robot.auth.isAdmin(msg.envelope.user)
   return true if robot.auth.hasRole(msg.envelope.user,roles)
-  msg.send {room: msg.message.user.name}, "Only users with #{roles.join ', '} role(s) allowed this command."
+  errmsg = "Only users with #{roles.join ', '} role(s) allowed this command."
+  msg.reply errmsg
   return false
 
 grantSudo = (robot, msg, user) ->
   if sudoed[user] and moment().isBefore(sudoed[user])
-    return msg.reply "Sudo already granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
+    expires = sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')
+    return msg.reply "Sudo already granted.  Expires `#{expires}`."
 
-  if ! sudoed[user] or moment().isAfter(sudoed[user])
-    sudoed[user] = new moment().add(1,'hours')
-    robot.logger.info "#{msg.envelope.user.name} granted sudo until #{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}"
-    return msg.reply "Sudo granted.  Expires `#{sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')}`."
+  sudoed[user] = new moment().add(1,'hours')
+  expires = sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')
+  logmsg = "#{msg.envelope.user.name} granted sudo until #{expires}"
+  robot.logger.info logmsg
+  return msg.reply "Sudo granted.  Expires `#{expires}`."
 
 
 module.exports = (robot) ->
-
-  unless config.admin_list?
-    robot.logger.warning 'The HUBOT_AUTH_ADMIN environment variable not set'
 
   if config.admin_list?
     admins = config.admin_list.split ','
@@ -118,7 +137,7 @@ module.exports = (robot) ->
       cmd = str.split " - "
       cmds.push "`#{cmd[0]}` - #{cmd[1]}"
 
-    if replyInPrivate and msg.message?.user?.name?
+    if config.replyInPrivate and msg.message?.user?.name?
       msg.reply 'replied to you in private!'
       robot.send {room: msg.message?.user?.name}, cmds.join "\n"
     else
@@ -140,13 +159,17 @@ module.exports = (robot) ->
       return msg.reply "#{name} already has the '#{newRole}' role."
 
     if newRole is 'admin'
-      return msg.reply "Sorry, the 'admin' role can only be defined in the HUBOT_AUTH_ADMIN env variable."
+      errmsg = "Sorry, the 'admin' role can only be defined in the " +
+        "HUBOT_AUTH_ADMIN env variable."
+      return msg.reply errmsg
 
     myRoles = msg.message.user.roles or []
     user.roles.push(newRole)
 
-    robot.logger.info "#{msg.envelope.user.name} added '#{newRole}' role to '#{name}' user"
-    
+    logmsg = "#{modulename}: #{msg.envelope.user.name} added '#{newRole}' " +
+      "role to '#{name}' user"
+    robot.logger.info logmsg
+
     return msg.reply "OK, #{name} has the '#{newRole}' role."
 
   robot.respond /auth who(?:ami|\sis|\sam)?\s?@?([^\s]+)?$/i, (msg) ->
@@ -173,12 +196,16 @@ module.exports = (robot) ->
     user.roles or= []
 
     if newRole is 'admin'
-      return msg.reply "Sorry, the 'admin' role can only be removed from the HUBOT_AUTH_ADMIN env variable."
+      errmsg = "Sorry, the 'admin' role can only be removed from the " +
+        "HUBOT_AUTH_ADMIN env variable."
+      return msg.reply errmsg
 
     myRoles = msg.message.user.roles or []
     user.roles = (role for role in user.roles when role isnt newRole)
 
-    robot.logger.info "#{msg.envelope.user.name} removed '#{newRole}' role from '#{name}' user"
+    logmsg = "#{modulename}: #{msg.envelope.user.name} removed '#{newRole}' " +
+      "role from '#{name}' user"
+    robot.logger.info logmsg
 
     return msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
 
@@ -225,22 +252,34 @@ module.exports = (robot) ->
   robot.respond /auth sudo$/i, (msg) ->
     return unless isAuthorized robot, msg, 'sudo'
 
+    logmsg = "#{modulename}: #{msg.envelope.user.name} request: sudo"
+    robot.logger.info logmsg
+
     name = msg.message.user.name
 
-    if config.duo
-      duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
-        res = r.response
-        if res.result is "enroll"
-          return msg.reply "Duo reports: `#{res.status_msg}`\nEnrollment portal: #{res.enroll_portal_url}"
-        if res.result is "allow"
-          return grantSudo(robot, msg, name)
-        if res.result is "auth"
-          return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
-            res = r.response
-            unless res.result is "allow"
-              return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
-            msg.reply "Duo reports: `#{res.status_msg}`"
-            return grantSudo(robot, msg, name)
-        return msg.reply "Duo reports: result=`#{res.result}` and status_msg=`#{res.status_message}`\n```\n#{JSON.stringify(res)}\n```"
-    else
+    unless config.duo
       return grantSudo(robot, msg, name)
+
+    duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
+      res = r.response
+      if res.result is "enroll"
+        msg = [
+          "Duo reports: `#{res.status_msg}`"
+          "Enrollment portal: #{res.enroll_portal_url}"
+        ]
+        return msg.reply msg.join "\n"
+      if res.result is "allow"
+        return grantSudo(robot, msg, name)
+      if res.result is "auth"
+        return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
+          res = r.response
+          unless res.result is "allow"
+            return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
+          msg.reply "Duo reports: `#{res.status_msg}`"
+          return grantSudo(robot, msg, name)
+      # this should not happen
+      msg = [
+        "Duo reports: result=`#{res.result}` and status_msg=`#{res.status_message}`"
+        "```#{JSON.stringify(res)}```"
+      ]
+      return msg.reply msg.join "\n"
