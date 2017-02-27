@@ -64,20 +64,23 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   roles = [roles] if typeof roles is 'string'
   return true if robot.auth.isAdmin(msg.envelope.user)
   return true if robot.auth.hasRole(msg.envelope.user,roles)
-  #errmsg = "Only users with #{roles.join ', '} role(s) allowed this command."
-  #msg.reply errmsg
+  errmsg = "#{modulename}: a role of #{roles.join ', '} is required."
+  msg.reply errmsg
+  un = msg.envelope.user.name
+  logmsg = "#{modulename}: #{un} missing #{roles.join ', '} role, not authorized"
+  robot.logger.info logmsg
   return false
 
 grantSudo = (robot, msg, user) ->
   if sudoed[user] and moment().isBefore(sudoed[user])
     expires = sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')
-    return msg.reply "Sudo already granted.  Expires `#{expires}`."
+    return msg.reply "#{modulename}: sudo already granted.  Expires `#{expires}`."
 
   sudoed[user] = new moment().add(1,'hours')
   expires = sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')
-  logmsg = "#{msg.envelope.user.name} granted sudo until #{expires}"
+  logmsg = "#{modulename}: #{user} granted sudo until #{expires}"
   robot.logger.info logmsg
-  return msg.reply "Sudo granted.  Expires `#{expires}`."
+  return msg.reply "#{modulename}: sudo granted.  Expires `#{expires}`."
 
 
 module.exports = (robot) ->
@@ -133,20 +136,19 @@ module.exports = (robot) ->
       "auth sudo - escalate"
     ]
 
-    for str in arr
-      cmd = str.split " - "
-      cmds.push "`#{cmd[0]}` - #{cmd[1]}"
+    #for str in arr
+    #  cmd = str.split " - "
+    #  cmds.push "`#{cmd[0]}` - #{cmd[1]}"
 
+    usermsg = "```" + arr.join("\n") + "```"
     if config.replyInPrivate and msg.message?.user?.name?
       msg.reply 'replied to you in private!'
-      robot.send {room: msg.message?.user?.name}, cmds.join "\n"
+      robot.send {room: msg.message?.user?.name}, usermsg
     else
-      msg.reply cmds.join "\n"
+      msg.reply usermsg
 
   robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
-    unless isAuthorized robot, msg, 'admin'
-      errmsg = "Only users with admin role allowed this command."
-      return msg.reply errmsg
+    return unless isAuthorized robot, msg, 'admin'
 
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -186,9 +188,7 @@ module.exports = (robot) ->
     return msg.send "#{user.name} is #{user.id}"
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
-    unless isAuthorized robot, msg, 'admin'
-      errmsg = "Only users with admin role allowed this command."
-      return msg.reply errmsg
+    return unless isAuthorized robot, msg, 'admin'
 
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -216,8 +216,6 @@ module.exports = (robot) ->
 
   robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
     unless isAuthorized robot, msg, 'admin'
-      errmsg = "Only users with admin role allowed this command."
-      return msg.reply errmsg
 
     name = msg.match[1].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -232,9 +230,7 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list users with (["'\w: -_]+)$/i, (msg) ->
-    unless isAuthorized robot, msg, 'admin'
-      errmsg = "Only users with admin role allowed this command."
-      return msg.reply errmsg
+    return unless isAuthorized robot, msg, 'admin'
 
     role = msg.match[1]
     userNames = robot.auth.usersWithRole(role) if role?
@@ -246,9 +242,7 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list roles$/i, (msg) ->
-    unless isAuthorized robot, msg, 'admin'
-      errmsg = "Only users with admin role allowed this command."
-      return msg.reply errmsg
+    return unless isAuthorized robot, msg, 'admin'
 
     roles = []
 
@@ -261,8 +255,6 @@ module.exports = (robot) ->
 
   robot.respond /auth sudo$/i, (msg) ->
     unless isAuthorized robot, msg, 'sudo'
-      errmsg = "Only users with sudo role allowed this command."
-      return msg.reply errmsg
 
     logmsg = "#{modulename}: #{msg.envelope.user.name} request: sudo"
     robot.logger.info logmsg
@@ -275,23 +267,30 @@ module.exports = (robot) ->
     duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
       res = r.response
       if res.result is "enroll"
-        msg = [
-          "Duo reports: `#{res.status_msg}`"
+        logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: duo enroll"
+        robot.logger.info logmsg
+        usermsg = "Duo reports: `#{res.status_msg}`. " +
           "Enrollment portal: #{res.enroll_portal_url}"
-        ]
-        return msg.reply msg.join "\n"
+        return msg.reply usermsg
+
       if res.result is "allow"
+        logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: granted"
+        robot.logger.info logmsg
         return grantSudo(robot, msg, name)
+
       if res.result is "auth"
         return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
           res = r.response
           unless res.result is "allow"
+            logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: duo api auth failed"
+            robot.logger.info logmsg
             return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
+          logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: granted"
+          robot.logger.info logmsg
           msg.reply "Duo reports: `#{res.status_msg}`"
           return grantSudo(robot, msg, name)
+
       # this should not happen
-      msg = [
-        "Duo reports: result=`#{res.result}` and status_msg=`#{res.status_message}`"
-        "```#{JSON.stringify(res)}```"
-      ]
-      return msg.reply msg.join "\n"
+      usermsg = "Duo reports: result=`#{res.result}` and " +
+        "status_message=`#{res.status_message}`\n```#{JSON.stringify(res)}```"
+      return msg.reply usermsg
