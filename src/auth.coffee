@@ -64,8 +64,8 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   roles = [roles] if typeof roles is 'string'
   return true if robot.auth.isAdmin(msg.envelope.user)
   return true if robot.auth.hasRole(msg.envelope.user,roles)
-  errmsg = "Only users with #{roles.join ', '} role(s) allowed this command."
-  msg.reply errmsg
+  #errmsg = "Only users with #{roles.join ', '} role(s) allowed this command."
+  #msg.reply errmsg
   return false
 
 grantSudo = (robot, msg, user) ->
@@ -144,7 +144,9 @@ module.exports = (robot) ->
       msg.reply cmds.join "\n"
 
   robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
-    return unless isAuthorized robot, msg
+    unless isAuthorized robot, msg, 'admin'
+      errmsg = "Only users with admin role allowed this command."
+      return msg.reply errmsg
 
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -184,7 +186,9 @@ module.exports = (robot) ->
     return msg.send "#{user.name} is #{user.id}"
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
-    return unless isAuthorized robot, msg
+    unless isAuthorized robot, msg, 'admin'
+      errmsg = "Only users with admin role allowed this command."
+      return msg.reply errmsg
 
     name = msg.match[2].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -211,7 +215,9 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
-    return unless isAuthorized robot, msg
+    unless isAuthorized robot, msg, 'admin'
+      errmsg = "Only users with admin role allowed this command."
+      return msg.reply errmsg
 
     name = msg.match[1].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -226,7 +232,9 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list users with (["'\w: -_]+)$/i, (msg) ->
-    return unless isAuthorized robot, msg
+    unless isAuthorized robot, msg, 'admin'
+      errmsg = "Only users with admin role allowed this command."
+      return msg.reply errmsg
 
     role = msg.match[1]
     userNames = robot.auth.usersWithRole(role) if role?
@@ -238,7 +246,9 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list roles$/i, (msg) ->
-    return unless isAuthorized robot, msg
+    unless isAuthorized robot, msg, 'admin'
+      errmsg = "Only users with admin role allowed this command."
+      return msg.reply errmsg
 
     roles = []
 
@@ -250,7 +260,9 @@ module.exports = (robot) ->
     return msg.reply "No roles to list."
 
   robot.respond /auth sudo$/i, (msg) ->
-    return unless isAuthorized robot, msg, 'sudo'
+    unless isAuthorized robot, msg, 'sudo'
+      errmsg = "Only users with sudo role allowed this command."
+      return msg.reply errmsg
 
     logmsg = "#{modulename}: #{msg.envelope.user.name} request: sudo"
     robot.logger.info logmsg
