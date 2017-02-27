@@ -215,7 +215,7 @@ module.exports = (robot) ->
 
 
   robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
-    unless isAuthorized robot, msg, 'admin'
+    return unless isAuthorized robot, msg, 'admin'
 
     name = msg.match[1].trim()
     if name.toLowerCase() is 'i' then name = msg.message.user.name
@@ -254,7 +254,7 @@ module.exports = (robot) ->
     return msg.reply "No roles to list."
 
   robot.respond /auth sudo$/i, (msg) ->
-    unless isAuthorized robot, msg, 'sudo'
+    return unless isAuthorized robot, msg, 'sudo'
 
     logmsg = "#{modulename}: #{msg.envelope.user.name} request: sudo"
     robot.logger.info logmsg
