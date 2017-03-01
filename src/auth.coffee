@@ -52,9 +52,9 @@ if config.duo == 3
     unless res.stat is 'OK'
       console.error 'duo api check failed: '+ res.message
       process.exit(1)
-  console.info "#{modulename}: duo 2fa enabled for sudo"
+  console.info "#{modulename}: duo 2fa enabled"
 
-sudoed = {}
+auth2FA = {}
 
 if process.env.HUBOT_PRIVATE_HELP
   config.replyInPrivate = process.env.HUBOT_PRIVATE_HELP
@@ -71,16 +71,16 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   robot.logger.info logmsg
   return false
 
-grantSudo = (robot, msg, user) ->
-  if sudoed[user] and moment().isBefore(sudoed[user])
-    expires = sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')
-    return msg.reply "#{modulename}: sudo already granted.  Expires `#{expires}`."
+grant2fa = (robot, msg, user) ->
+  if auth2FA[user] and moment().isBefore(auth2FA[user])
+    expires = auth2FA[user].format('YYYY-MM-DD HH:mm:ss ZZ')
+    return msg.reply "#{modulename}: 2fa already granted.  Expires `#{expires}`."
 
-  sudoed[user] = new moment().add(1,'hours')
-  expires = sudoed[user].format('YYYY-MM-DD HH:mm:ss ZZ')
-  logmsg = "#{modulename}: #{user} granted sudo until #{expires}"
+  auth2FA[user] = new moment().add(1,'hours')
+  expires = auth2FA[user].format('YYYY-MM-DD HH:mm:ss ZZ')
+  logmsg = "#{modulename}: #{user} granted 2fa until #{expires}"
   robot.logger.info logmsg
-  return msg.reply "#{modulename}: sudo granted.  Expires `#{expires}`."
+  return msg.reply "#{modulename}: 2fa granted.  Expires `#{expires}`."
 
 
 module.exports = (robot) ->
@@ -94,9 +94,9 @@ module.exports = (robot) ->
     isAdmin: (user) ->
       user.id.toString() in admins
 
-    isSudo: (user) ->
-      return false unless user.name of sudoed
-      return false unless moment().isBefore(sudoed[user.name])
+    is2fa: (user) ->
+      return false unless user.name of auth2FA
+      return false unless moment().isBefore(auth2FA[user.name])
       return true
 
     hasRole: (user, roles) ->
@@ -133,7 +133,7 @@ module.exports = (robot) ->
       "auth list roles for <user> - list roles"
       "auth list users with <role> - list users"
       "auth list roles - list roles"
-      "auth sudo - escalate"
+      "auth 2fa - escalate"
     ]
 
     #for str in arr
@@ -253,44 +253,45 @@ module.exports = (robot) ->
 
     return msg.reply "No roles to list."
 
-  robot.respond /auth sudo$/i, (msg) ->
-    return unless isAuthorized robot, msg, 'sudo'
+  robot.respond /auth 2fa$/i, (msg) ->
+    return unless isAuthorized robot, msg, '2fa'
     name = msg.message.user.name
 
-    logmsg = "#{modulename}: #{name} request: sudo"
+    logmsg = "#{modulename}: #{name} request: 2fa"
     robot.logger.info logmsg
 
     unless config.duo
-      return grantSudo(robot, msg, name)
+      usermsg = "#{modulename}: 2fa not configured"
+      return msg.reply usermsg
 
-    usermsg = "#{modulename}: requesting duo auth"
+    usermsg = "#{modulename}: requesting 2fa via duo"
     msg.reply usermsg
 
     duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
       res = r.response
       if res.result is "enroll"
-        logmsg = "#{modulename}: #{name} sudo: duo enroll"
+        logmsg = "#{modulename}: #{name} 2fa: duo enroll"
         robot.logger.info logmsg
         usermsg = "#{modulename}: duo reports: `#{res.status_msg}`. " +
           "Enrollment portal: #{res.enroll_portal_url}"
         return msg.reply usermsg
 
       if res.result is "allow"
-        logmsg = "#{modulename}: #{name} sudo: granted"
+        logmsg = "#{modulename}: #{name} 2fa: granted"
         robot.logger.info logmsg
-        return grantSudo(robot, msg, name)
+        return grant2fa(robot, msg, name)
 
       if res.result is "auth"
         return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
           res = r.response
           unless res.result is "allow"
-            logmsg = "#{modulename}: #{name} sudo: duo api auth failed"
+            logmsg = "#{modulename}: #{name} 2fa: duo api auth failed"
             robot.logger.info logmsg
             return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
-          logmsg = "#{modulename}: #{name} sudo: granted"
+          logmsg = "#{modulename}: #{name} 2fa: granted"
           robot.logger.info logmsg
           msg.reply "#{modulename}: duo reports: `#{res.status_msg}`"
-          return grantSudo(robot, msg, name)
+          return grant2fa(robot, msg, name)
 
       # this should not happen
       usermsg = "Duo reports: result=`#{res.result}` and " +
