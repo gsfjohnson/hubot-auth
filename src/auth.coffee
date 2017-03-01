@@ -255,26 +255,28 @@ module.exports = (robot) ->
 
   robot.respond /auth sudo$/i, (msg) ->
     return unless isAuthorized robot, msg, 'sudo'
-
-    logmsg = "#{modulename}: #{msg.envelope.user.name} request: sudo"
-    robot.logger.info logmsg
-
     name = msg.message.user.name
+
+    logmsg = "#{modulename}: #{name} request: sudo"
+    robot.logger.info logmsg
 
     unless config.duo
       return grantSudo(robot, msg, name)
 
+    usermsg = "#{modulename}: requesting duo auth"
+    msg.reply usermsg
+
     duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
       res = r.response
       if res.result is "enroll"
-        logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: duo enroll"
+        logmsg = "#{modulename}: #{name} sudo: duo enroll"
         robot.logger.info logmsg
-        usermsg = "Duo reports: `#{res.status_msg}`. " +
+        usermsg = "#{modulename}: duo reports: `#{res.status_msg}`. " +
           "Enrollment portal: #{res.enroll_portal_url}"
         return msg.reply usermsg
 
       if res.result is "allow"
-        logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: granted"
+        logmsg = "#{modulename}: #{name} sudo: granted"
         robot.logger.info logmsg
         return grantSudo(robot, msg, name)
 
@@ -282,12 +284,12 @@ module.exports = (robot) ->
         return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
           res = r.response
           unless res.result is "allow"
-            logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: duo api auth failed"
+            logmsg = "#{modulename}: #{name} sudo: duo api auth failed"
             robot.logger.info logmsg
             return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
-          logmsg = "#{modulename}: #{msg.envelope.user.name} sudo: granted"
+          logmsg = "#{modulename}: #{name} sudo: granted"
           robot.logger.info logmsg
-          msg.reply "Duo reports: `#{res.status_msg}`"
+          msg.reply "#{modulename}: duo reports: `#{res.status_msg}`"
           return grantSudo(robot, msg, name)
 
       # this should not happen
