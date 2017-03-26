@@ -21,6 +21,7 @@
 moment = require 'moment'
 
 modulename = 'auth'
+data_file = modulename + ".json"
 
 config =
   duo: 0
@@ -66,10 +67,11 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   return true if robot.auth.hasRole(msg.envelope.user,roles)
   errmsg = "#{modulename}: a role of #{roles.join ', '} is required."
   msg.reply errmsg
-  un = msg.envelope.user.name
-  logmsg = "#{modulename}: #{un} missing #{roles.join ', '} role, not authorized"
+  who = msg.envelope.user.name
+  logmsg = "#{modulename}: #{who} missing #{roles.join ', '} role, not authorized"
   robot.logger.info logmsg
   return false
+
 
 grant2fa = (robot, msg, user) ->
   if auth2FA[user] and moment().isBefore(auth2FA[user])
@@ -81,6 +83,154 @@ grant2fa = (robot, msg, user) ->
   logmsg = "#{modulename}: #{user} granted 2fa until #{expires}"
   robot.logger.info logmsg
   return msg.reply "#{modulename}: 2fa granted.  Expires `#{expires}`."
+
+
+addAuth = (robot, msg) ->
+  who = msg.message.user.name
+  un = msg.match[2].trim()
+  if un.toLowerCase() is 'i' then un = who
+
+  newRole = msg.match[1].trim().toLowerCase()
+
+  user = robot.brain.userForName(un)
+  return msg.reply "#{un} does not exist" unless user?
+  user.roles or= []
+
+  if newRole in user.roles
+    return msg.reply "#{un} already has the '#{newRole}' role."
+
+  if newRole is 'admin'
+    errmsg = "Sorry, the 'admin' role can only be defined in the " +
+      "HUBOT_AUTH_ADMIN env variable."
+    return msg.reply errmsg
+
+  myRoles = msg.message.user.roles or []
+  user.roles.push(newRole)
+
+  logmsg = "#{modulename}: #{who} added '#{newRole}' " +
+    "role to '#{un}' user"
+  robot.logger.info logmsg
+
+  return msg.reply "OK, #{un} has the '#{newRole}' role."
+
+
+authWho = (robot, msg) ->
+  who = msg.message.user.name
+  if msg.match[1]?
+    un = msg.match[1].trim()
+    if un.toLowerCase() is 'i' then un = who
+    user = robot.brain.userForName(un)
+    return msg.reply "#{un} does not exist" unless user?
+  else
+    user = msg.message.user
+
+  return msg.send "#{user.name} is #{user.id}"
+
+
+removeAuth = (robot, msg) ->
+  who = msg.message.user.name
+  un = msg.match[2].trim()
+  if un.toLowerCase() is 'i' then un = who
+
+  newRole = msg.match[1].trim().toLowerCase()
+
+  user = robot.brain.userForName(un)
+  return msg.reply "#{un} does not exist" unless user?
+  user.roles or= []
+
+  if newRole is 'admin'
+    errmsg = "Sorry, the 'admin' role can only be removed from the " +
+      "HUBOT_AUTH_ADMIN env variable."
+    return msg.reply errmsg
+
+  myRoles = msg.message.user.roles or []
+  user.roles = (role for role in user.roles when role isnt newRole)
+
+  logmsg = "#{modulename}: #{who} removed '#{newRole}' " +
+    "role from '#{un}' user"
+  robot.logger.info logmsg
+
+  return msg.reply "OK, #{un} doesn't have the '#{newRole}' role."
+
+
+listAuthRolesForUser = (robot, msg) ->
+  who = msg.message.user.name
+  un = msg.match[1].trim()
+  if un.toLowerCase() is 'i' then un = who
+  user = robot.brain.userForName(un)
+  return msg.reply "#{un} does not exist" unless user?
+  userRoles = robot.auth.userRoles(user)
+
+  if userRoles.length == 0
+    return msg.reply "#{un} has no roles."
+
+  return msg.reply "#{un} has the following roles: #{userRoles.join(', ')}."
+
+
+listAuthUsersWithRole = (robot, msg) ->
+  role = msg.match[1]
+  userNames = robot.auth.usersWithRole(role) if role?
+
+  if userNames.length > 0
+    return msg.reply "Users with `#{role}` role: `#{userNames.join('`, `')}`"
+
+  return msg.reply "No one has `#{role}` role."
+
+
+listAuthRoles = (robot, msg) ->
+  roles = []
+
+  for i, user of robot.brain.data.users when user.roles
+    roles.push role for role in user.roles when role not in roles
+  if roles.length > 0
+    return msg.reply "The following roles are available: #{roles.join(', ')}"
+
+  return msg.reply "No roles to list."
+
+
+duo2faAuth = (robot, msg) ->
+  who = msg.message.user.name
+
+  logmsg = "#{modulename}: #{who} request: 2fa"
+  robot.logger.info logmsg
+
+  unless config.duo
+    usermsg = "#{modulename}: 2fa not configured"
+    return msg.reply usermsg
+
+  usermsg = "#{modulename}: requesting 2fa via duo"
+  msg.reply usermsg
+
+  duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: who }, (r) ->
+    res = r.response
+    if res.result is 'enroll'
+      logmsg = "#{modulename}: #{who} 2fa: duo enroll"
+      robot.logger.info logmsg
+      usermsg = "#{modulename}: duo reports: `#{res.status_msg}`. " +
+        "Enrollment portal: #{res.enroll_portal_url}"
+      return msg.reply usermsg
+
+    if res.result is 'allow'
+      logmsg = "#{modulename}: #{who} 2fa: granted"
+      robot.logger.info logmsg
+      return grant2fa(robot, msg, who)
+
+    if res.result is 'auth'
+      return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: who, factor: 'auto', device: 'auto' }, (r) ->
+        res = r.response
+        unless res.result is "allow"
+          logmsg = "#{modulename}: #{who} 2fa: duo api auth failed"
+          robot.logger.info logmsg
+          return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
+        logmsg = "#{modulename}: #{who} 2fa: granted"
+        robot.logger.info logmsg
+        msg.reply "#{modulename}: duo reports: `#{res.status_msg}`"
+        return grant2fa(robot, msg, who)
+
+    # this should not happen
+    usermsg = "Duo reports: result=`#{res.result}` and " +
+      "status_message=`#{res.status_message}`\n```#{JSON.stringify(res)}```"
+    return msg.reply usermsg
 
 
 module.exports = (robot) ->
@@ -128,12 +278,12 @@ module.exports = (robot) ->
   robot.respond /auth help$/, (msg) ->
     cmds = []
     arr = [
-      "auth add <role> to <user> - role assignment"
-      "auth remove <role> from <user> - remove role from user"
-      "auth list roles for <user> - list roles"
-      "auth list users with <role> - list users"
-      "auth list roles - list roles"
-      "auth 2fa - escalate"
+      modulename + " add <role> to <user> - role assignment"
+      modulename + " remove <role> from <user> - remove role from user"
+      modulename + " list roles for <user> - list roles"
+      modulename + " list users with <role> - list users"
+      modulename + " list roles - list roles"
+      modulename + " 2fa - escalate"
     ]
 
     #for str in arr
@@ -149,151 +299,27 @@ module.exports = (robot) ->
 
   robot.respond /auth add (["'\w: -_]+) to @?([^\s]+)$/i, (msg) ->
     return unless isAuthorized robot, msg, 'admin'
-
-    name = msg.match[2].trim()
-    if name.toLowerCase() is 'i' then name = msg.message.user.name
-
-    newRole = msg.match[1].trim().toLowerCase()
-
-    user = robot.brain.userForName(name)
-    return msg.reply "#{name} does not exist" unless user?
-    user.roles or= []
-
-    if newRole in user.roles
-      return msg.reply "#{name} already has the '#{newRole}' role."
-
-    if newRole is 'admin'
-      errmsg = "Sorry, the 'admin' role can only be defined in the " +
-        "HUBOT_AUTH_ADMIN env variable."
-      return msg.reply errmsg
-
-    myRoles = msg.message.user.roles or []
-    user.roles.push(newRole)
-
-    logmsg = "#{modulename}: #{msg.envelope.user.name} added '#{newRole}' " +
-      "role to '#{name}' user"
-    robot.logger.info logmsg
-
-    return msg.reply "OK, #{name} has the '#{newRole}' role."
+    return addAuth robot, msg
 
   robot.respond /auth who(?:ami|\sis|\sam)?\s?@?([^\s]+)?$/i, (msg) ->
-    if msg.match[1]?
-      name = msg.match[1].trim()
-      if name.toLowerCase() is 'i' then name = msg.message.user.name
-      user = robot.brain.userForName(name)
-      return msg.reply "#{name} does not exist" unless user?
-    else
-      user = msg.message.user
-
-    return msg.send "#{user.name} is #{user.id}"
+    return authWho robot, msg
 
   robot.respond /auth remove (["'\w: -_]+) from @?([^\s]+)/i, (msg) ->
     return unless isAuthorized robot, msg, 'admin'
-
-    name = msg.match[2].trim()
-    if name.toLowerCase() is 'i' then name = msg.message.user.name
-
-    newRole = msg.match[1].trim().toLowerCase()
-
-    user = robot.brain.userForName(name)
-    return msg.reply "#{name} does not exist" unless user?
-    user.roles or= []
-
-    if newRole is 'admin'
-      errmsg = "Sorry, the 'admin' role can only be removed from the " +
-        "HUBOT_AUTH_ADMIN env variable."
-      return msg.reply errmsg
-
-    myRoles = msg.message.user.roles or []
-    user.roles = (role for role in user.roles when role isnt newRole)
-
-    logmsg = "#{modulename}: #{msg.envelope.user.name} removed '#{newRole}' " +
-      "role from '#{name}' user"
-    robot.logger.info logmsg
-
-    return msg.reply "OK, #{name} doesn't have the '#{newRole}' role."
-
+    return removeAuth robot, msg
 
   robot.respond /auth list roles for @?([^\s]+)$/i, (msg) ->
     return unless isAuthorized robot, msg, 'admin'
-
-    name = msg.match[1].trim()
-    if name.toLowerCase() is 'i' then name = msg.message.user.name
-    user = robot.brain.userForName(name)
-    return msg.reply "#{name} does not exist" unless user?
-    userRoles = robot.auth.userRoles(user)
-
-    if userRoles.length == 0
-      return msg.reply "#{name} has no roles."
-
-    return msg.reply "#{name} has the following roles: #{userRoles.join(', ')}."
-
+    return listAuthRolesForUser robot, msg
 
   robot.respond /auth list users with (["'\w: -_]+)$/i, (msg) ->
     return unless isAuthorized robot, msg, 'admin'
-
-    role = msg.match[1]
-    userNames = robot.auth.usersWithRole(role) if role?
-
-    if userNames.length > 0
-      return msg.reply "Users with `#{role}` role: `#{userNames.join('`, `')}`"
-
-    return msg.reply "No one has `#{role}` role."
-
+    return listAuthUsersWithRole robot, msg
 
   robot.respond /auth list roles$/i, (msg) ->
     return unless isAuthorized robot, msg, 'admin'
-
-    roles = []
-
-    for i, user of robot.brain.data.users when user.roles
-      roles.push role for role in user.roles when role not in roles
-    if roles.length > 0
-      return msg.reply "The following roles are available: #{roles.join(', ')}"
-
-    return msg.reply "No roles to list."
+    return listAuthRoles robot, msg
 
   robot.respond /auth 2fa$/i, (msg) ->
     return unless isAuthorized robot, msg, '2fa'
-    name = msg.message.user.name
-
-    logmsg = "#{modulename}: #{name} request: 2fa"
-    robot.logger.info logmsg
-
-    unless config.duo
-      usermsg = "#{modulename}: 2fa not configured"
-      return msg.reply usermsg
-
-    usermsg = "#{modulename}: requesting 2fa via duo"
-    msg.reply usermsg
-
-    duoclient.jsonApiCall 'POST', '/auth/v2/preauth', { username: name }, (r) ->
-      res = r.response
-      if res.result is "enroll"
-        logmsg = "#{modulename}: #{name} 2fa: duo enroll"
-        robot.logger.info logmsg
-        usermsg = "#{modulename}: duo reports: `#{res.status_msg}`. " +
-          "Enrollment portal: #{res.enroll_portal_url}"
-        return msg.reply usermsg
-
-      if res.result is "allow"
-        logmsg = "#{modulename}: #{name} 2fa: granted"
-        robot.logger.info logmsg
-        return grant2fa(robot, msg, name)
-
-      if res.result is "auth"
-        return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: name, factor: 'auto', device: 'auto' }, (r) ->
-          res = r.response
-          unless res.result is "allow"
-            logmsg = "#{modulename}: #{name} 2fa: duo api auth failed"
-            robot.logger.info logmsg
-            return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
-          logmsg = "#{modulename}: #{name} 2fa: granted"
-          robot.logger.info logmsg
-          msg.reply "#{modulename}: duo reports: `#{res.status_msg}`"
-          return grant2fa(robot, msg, name)
-
-      # this should not happen
-      usermsg = "Duo reports: result=`#{res.result}` and " +
-        "status_message=`#{res.status_message}`\n```#{JSON.stringify(res)}```"
-      return msg.reply usermsg
+    return duo2faAuth robot, msg
