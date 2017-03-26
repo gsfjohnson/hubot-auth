@@ -18,10 +18,19 @@
 #     correctly identify a user. Names were insecure as a user could impersonate
 #     a user
 
+fs = require 'fs'
 moment = require 'moment'
 
 modulename = 'auth'
 data_file = modulename + ".json"
+timefmt = 'YYYY-MM-DD HH:mm:ss ZZ'
+svcQueueIntervalMs = 300 * 1000
+
+robotRef = false
+auth_data =
+  notify: []
+  roles: {}
+  duo2fa: {}
 
 config =
   duo: 0
@@ -55,8 +64,6 @@ if config.duo == 3
       process.exit(1)
   console.info "#{modulename}: duo 2fa enabled"
 
-auth2FA = {}
-
 if process.env.HUBOT_PRIVATE_HELP
   config.replyInPrivate = process.env.HUBOT_PRIVATE_HELP
 
@@ -73,16 +80,41 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   return false
 
 
-grant2fa = (robot, msg, user) ->
-  if auth2FA[user] and moment().isBefore(auth2FA[user])
-    expires = auth2FA[user].format('YYYY-MM-DD HH:mm:ss ZZ')
-    return msg.reply "#{modulename}: 2fa already granted.  Expires `#{expires}`."
+grant2fa = (robot, msg, un) ->
+  expires = moment(auth_data.duo2fa[un])
+  if expires.valueOf() > Date.now()
+    return msg.reply "#{modulename}: 2fa already granted.  Expires in #{expires.fromNow()}`."
 
-  auth2FA[user] = new moment().add(1,'hours')
-  expires = auth2FA[user].format('YYYY-MM-DD HH:mm:ss ZZ')
-  logmsg = "#{modulename}: #{user} granted 2fa until #{expires}"
+  auth_data.duo2fa[un] = new moment().add(1,'hours')
+  writeData()
+
+  expires = auth_data.duo2fa[un].format(timefmt)
+  logmsg = "#{modulename}: #{un} granted 2fa until #{expires}"
   robot.logger.info logmsg
-  return msg.reply "#{modulename}: 2fa granted.  Expires `#{expires}`."
+
+  return msg.reply "#{modulename}: 2fa granted until `#{expires}`."
+
+
+expirationWorker = ->
+  expireEntries()
+  setTimeout expirationWorker, svcQueueIntervalMs
+
+
+expireEntries = ->
+  removequeue = []
+  for un, expiresdt of auth_data.duo2fa when moment(expiresdt).valueOf() < Date.now()
+    usermsg = "#{modulename}: #{un} 2fa grant has expired"
+    removequeue.push un
+    robotRef.send { room: un }, usermsg
+    robotRef.logger.info usermsg
+
+  if removequeue.length > 0
+    while removequeue.length > 0
+      delete auth_data.duo2fa[removequeue.shift()]
+      usermsg = "#{modulename}: #{un} 2fa grant has expired"
+      robotRef.send { room: un }, usermsg
+      robotRef.logger.info usermsg
+    writeData()
 
 
 addAuth = (robot, msg) ->
@@ -106,6 +138,7 @@ addAuth = (robot, msg) ->
 
   myRoles = msg.message.user.roles or []
   user.roles.push(newRole)
+  #writeData()
 
   logmsg = "#{modulename}: #{who} added '#{newRole}' " +
     "role to '#{un}' user"
@@ -145,6 +178,7 @@ removeAuth = (robot, msg) ->
 
   myRoles = msg.message.user.roles or []
   user.roles = (role for role in user.roles when role isnt newRole)
+  #writeData()
 
   logmsg = "#{modulename}: #{who} removed '#{newRole}' " +
     "role from '#{un}' user"
@@ -191,6 +225,11 @@ listAuthRoles = (robot, msg) ->
 duo2faAuth = (robot, msg) ->
   who = msg.message.user.name
 
+  if auth_data.duo2fa[who]
+    expires = moment(auth_data.duo2fa[who])
+    if expires.valueOf() > Date.now()
+      return msg.reply "#{modulename}: 2fa already granted.  Expires in #{expires.fromNow()}`."
+
   logmsg = "#{modulename}: #{who} request: 2fa"
   robot.logger.info logmsg
 
@@ -218,7 +257,7 @@ duo2faAuth = (robot, msg) ->
     if res.result is 'auth'
       return duoclient.jsonApiCall 'POST', '/auth/v2/auth', { username: who, factor: 'auto', device: 'auto' }, (r) ->
         res = r.response
-        unless res.result is "allow"
+        unless res.result is 'allow'
           logmsg = "#{modulename}: #{who} 2fa: duo api auth failed"
           robot.logger.info logmsg
           return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
@@ -233,7 +272,23 @@ duo2faAuth = (robot, msg) ->
     return msg.reply usermsg
 
 
+writeData = ->
+  fs.writeFileSync data_file, JSON.stringify(auth_data), 'utf-8'
+  logmsg = "#{modulename}: wrote #{data_file}"
+  robotRef.logger.info logmsg
+
+
 module.exports = (robot) ->
+
+  robotRef = robot
+  setTimeout expirationWorker, svcQueueIntervalMs
+
+  try
+    auth_data = JSON.parse fs.readFileSync data_file, 'utf-8'
+    robot.logger.info "#{modulename}: read #{data_file}" if robot.logger
+  catch error
+    unless error.code is 'ENOENT'
+      console.log("#{modulename}: unable to read #{data_file}: ", error)
 
   if config.admin_list?
     admins = config.admin_list.split ','
@@ -245,8 +300,8 @@ module.exports = (robot) ->
       user.id.toString() in admins
 
     is2fa: (user) ->
-      return false unless user.name of auth2FA
-      return false unless moment().isBefore(auth2FA[user.name])
+      return false unless user.name of auth_data.duo2fa
+      return false unless moment().isBefore(auth_data.duo2fa[user.name])
       return true
 
     hasRole: (user, roles) ->
@@ -275,7 +330,7 @@ module.exports = (robot) ->
   robot.auth = new Auth
 
 
-  robot.respond /auth help$/, (msg) ->
+  robot.respond /auth(?: help| h|)$/, (msg) ->
     cmds = []
     arr = [
       modulename + " add <role> to <user> - role assignment"
@@ -320,6 +375,6 @@ module.exports = (robot) ->
     return unless isAuthorized robot, msg, 'admin'
     return listAuthRoles robot, msg
 
-  robot.respond /auth 2fa$/i, (msg) ->
-    return unless isAuthorized robot, msg, '2fa'
+  robot.respond /auth (?:2fa|duo2fa)$/i, (msg) ->
+    #return unless isAuthorized robot, msg, '2fa'
     return duo2faAuth robot, msg
