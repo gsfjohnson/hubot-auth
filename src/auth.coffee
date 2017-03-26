@@ -83,7 +83,7 @@ isAuthorized = (robot, msg, roles=['admin']) ->
 grant2fa = (robot, msg, un) ->
   expires = moment(auth_data.duo2fa[un])
   if expires.valueOf() > Date.now()
-    return msg.reply "#{modulename}: 2fa already granted.  Expires in #{expires.fromNow()}`."
+    return msg.reply "#{modulename}: 2fa already granted.  Expires #{expires.fromNow()}."
 
   auth_data.duo2fa[un] = new moment().add(1,'hours')
   writeData()
@@ -228,7 +228,7 @@ duo2faAuth = (robot, msg) ->
   if auth_data.duo2fa[who]
     expires = moment(auth_data.duo2fa[who])
     if expires.valueOf() > Date.now()
-      return msg.reply "#{modulename}: 2fa already granted.  Expires in #{expires.fromNow()}`."
+      return msg.reply "#{modulename}: 2fa already granted.  Expires #{expires.fromNow()}."
 
   logmsg = "#{modulename}: #{who} request: 2fa"
   robot.logger.info logmsg
