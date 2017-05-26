@@ -333,7 +333,7 @@ module.exports = (robot) ->
     addRoleToUser: (user, role) ->
       un = @username(user)
       return false unless un
-      if role not in auth_data.roles
+      if role not of auth_data.roles
         auth_data.roles[role] = [un]
       else
         auth_data.roles[role].push un
