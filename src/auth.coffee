@@ -333,10 +333,10 @@ module.exports = (robot) ->
     addRoleToUser: (user, role) ->
       un = @username(user)
       return false unless un
-      if role not of auth_data.roles
-        auth_data.roles[role] = [un]
-      else
+      if auth_data.roles[role]
         auth_data.roles[role].push un
+      else
+        auth_data.roles[role] = [un]
       writeData()
       return true
 
@@ -346,8 +346,7 @@ module.exports = (robot) ->
       users = @usersWithRole(role)
       user_idx = users.indexOf(un)
       return false if user_idx == -1
-      users.splice(user_idx, 1)
-      auth_data.roles[role] = users
+      auth_data.roles[role] = users.splice(user_idx, 1)
       writeData()
       return true
 
