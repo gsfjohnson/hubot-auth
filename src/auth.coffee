@@ -80,16 +80,16 @@ isAuthorized = (robot, msg, roles=['admin']) ->
   return false
 
 
-grant2fa = (robot, msg, un) ->
-  expires = moment(auth_data.duo2fa[un])
+grant2fa = (robot, msg, user) ->
+  expires = moment(auth_data.duo2fa[user])
   if expires.valueOf() > Date.now()
     return msg.reply "#{modulename}: 2fa already granted.  Expires #{expires.fromNow()}."
 
-  auth_data.duo2fa[un] = new moment().add(1,'hours')
+  auth_data.duo2fa[user] = new moment().add(1,'hours')
   writeData()
 
-  expires = auth_data.duo2fa[un].format(timefmt)
-  logmsg = "#{modulename}: #{un} granted 2fa until #{expires}"
+  expires = auth_data.duo2fa[user].format(timefmt)
+  logmsg = "#{modulename}: #{user} granted 2fa until #{expires}"
   robot.logger.info logmsg
 
   return msg.reply "#{modulename}: 2fa granted until `#{expires}`."
@@ -102,30 +102,28 @@ expirationWorker = ->
 
 expireEntries = ->
   removequeue = []
-  for un, expiresdt of auth_data.duo2fa when moment(expiresdt).valueOf() < Date.now()
-    removequeue.push un
+  for user, expiresdt of auth_data.duo2fa when moment(expiresdt).valueOf() < Date.now()
+    removequeue.push user
 
   if removequeue.length > 0
     while removequeue.length > 0
       delete auth_data.duo2fa[removequeue.shift()]
-      usermsg = "#{modulename}: #{un} 2fa grant has expired"
-      #robotRef.send { room: un }, usermsg
+      usermsg = "#{modulename}: #{user} 2fa grant has expired"
+      #robotRef.send { room: user }, usermsg
       robotRef.logger.info usermsg
     writeData()
 
 
 addAuth = (robot, msg) ->
   who = msg.message.user.name
-  un = msg.match[2].trim()
-  if un.toLowerCase() is 'i' then un = who
-
   role = msg.match[1].trim().toLowerCase()
+  user = msg.match[2].trim()
 
-  user = robot.brain.userForName(un)
-  return msg.reply "#{un} does not exist" unless user?
+  uid = robot.brain.userForName(user)
+  return msg.reply "#{user} does not exist" unless uid?
 
-  if robot.auth.hasRole(who,role)
-    return msg.reply "#{un} already has the `#{role}` role."
+  if robot.auth.hasRole(user,role)
+    return msg.reply "#{user} already has the `#{role}` role."
 
   if role is 'admin'
     errmsg = "Sorry, the `admin` role can only be defined in the " +
@@ -134,19 +132,19 @@ addAuth = (robot, msg) ->
 
   robot.auth.addRoleToUser(user,role)
 
-  logmsg = "#{modulename}: #{who} added '#{role}' role to '#{un}' user"
+  logmsg = "#{modulename}: #{who} added '#{role}' role to '#{user}' user"
   robot.logger.info logmsg
 
-  return msg.reply "OK, #{un} has the `#{role}` role."
+  return msg.reply "OK, #{user} has the `#{role}` role."
 
 
 authWho = (robot, msg) ->
   who = msg.message.user.name
   if msg.match[1]?
-    un = msg.match[1].trim()
-    if un.toLowerCase() is 'i' then un = who
-    user = robot.brain.userForName(un)
-    return msg.reply "#{un} does not exist" unless user?
+    user = msg.match[1].trim()
+    user = who if user.toLowerCase() is 'i'
+    uid = robot.brain.userForName(user)
+    return msg.reply "#{user} does not exist" unless uid?
   else
     user = msg.message.user
 
@@ -155,13 +153,11 @@ authWho = (robot, msg) ->
 
 removeAuth = (robot, msg) ->
   who = msg.message.user.name
-  un = msg.match[2].trim()
-  if un.toLowerCase() is 'i' then un = who
-
   role = msg.match[1].trim().toLowerCase()
+  user = msg.match[2].trim()
 
-  user = robot.brain.userForName(un)
-  return msg.reply "#{un} does not exist" unless user?
+  uid = robot.brain.userForName(user)
+  return msg.reply "#{user} does not exist" unless uid?
 
   if role is 'admin'
     errmsg = "Sorry, the 'admin' role can only be removed from the " +
@@ -171,24 +167,26 @@ removeAuth = (robot, msg) ->
   robot.auth.removeRoleFromUser(user,role)
 
   logmsg = "#{modulename}: #{who} removed '#{role}' " +
-    "role from '#{un}' user"
+    "role from '#{user}' user"
   robot.logger.info logmsg
 
-  return msg.reply "OK, #{un} doesn't have the `#{role}` role."
+  return msg.reply "OK, #{user} doesn't have the `#{role}` role."
 
 
 listAuthRolesForUser = (robot, msg) ->
   who = msg.message.user.name
-  un = msg.match[1].trim()
-  if un.toLowerCase() is 'i' then un = who
-  user = robot.brain.userForName(un)
-  return msg.reply "#{un} does not exist" unless user?
+  user = msg.match[1].trim()
+  user = who if user.toLowerCase() is 'i'
+
+  uid = robot.brain.userForName(user)
+  return msg.reply "#{user} does not exist" unless uid?
+
   userRoles = robot.auth.userRoles(user)
 
   if userRoles.length == 0
-    return msg.reply "#{un} has no roles."
+    return msg.reply "#{user} has no roles."
 
-  return msg.reply "#{un} has the following roles: #{userRoles.join(', ')}."
+  return msg.reply "#{user} has the following roles: #{userRoles.join(', ')}."
 
 
 listAuthUsersWithRole = (robot, msg) ->
