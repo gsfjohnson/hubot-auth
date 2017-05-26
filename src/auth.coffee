@@ -282,12 +282,22 @@ module.exports = (robot) ->
     admins = []
 
   class Auth
+    username: (user) ->
+      un = false
+      if typeof user is 'string'
+        un = user
+      if typeof user is 'object' and user.name?
+        un = user.name
+      return un
+
     isAdmin: (user) ->
-      user.id.toString() in admins
+      un = @username(user)
+      un in admins
 
     is2fa: (user) ->
-      return false unless user.name of auth_data.duo2fa
-      return false unless moment().isBefore(auth_data.duo2fa[user.name])
+      un = @username(user)
+      return false unless un of auth_data.duo2fa
+      return false unless moment().isBefore(auth_data.duo2fa[un])
       return true
 
     roles: () ->
@@ -310,25 +320,31 @@ module.exports = (robot) ->
       return auth_data.roles[role]
 
     userRoles: (user) ->
+      un = @username(user)
+      return [] unless un
       roles = []
-      if user? and robot.auth.isAdmin user
+      if robot.auth.isAdmin user
         roles.push('admin')
       if auth_data.roles?
-        for role, users of auth_data.roles when user in users
+        for role, users of auth_data.roles when un in users
           roles.push role
       return roles
 
     addRoleToUser: (user, role) ->
+      un = @username(user)
+      return false unless un
       if role not in auth_data.roles
-        auth_data.roles[role] = [who]
+        auth_data.roles[role] = [un]
       else
-        auth_data.roles[role].push who
+        auth_data.roles[role].push un
       writeData()
       return true
 
     removeRoleFromUser: (user, role) ->
+      un = @username(user)
+      return false unless un
       users = @usersWithRole(role)
-      user_idx = users.indexOf(user)
+      user_idx = users.indexOf(un)
       return false if user_idx == -1
       users.splice(user_idx, 1)
       auth_data.roles[role] = users
