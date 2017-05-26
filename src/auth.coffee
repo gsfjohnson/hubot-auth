@@ -249,7 +249,7 @@ duo2faAuth = (robot, msg) ->
           return msg.reply "duo api auth failed: #{JSON.stringify(res)}"
         logmsg = "#{modulename}: #{who} 2fa: granted"
         robot.logger.info logmsg
-        msg.reply "#{modulename}: duo reports: `#{res.status_msg}`"
+        #msg.reply "#{modulename}: duo reports: `#{res.status_msg}`"
         return grant2fa(robot, msg, who)
 
     # this should not happen
@@ -274,7 +274,7 @@ module.exports = (robot) ->
     robot.logger.info "#{modulename}: read #{data_file}" if robot.logger
   catch error
     unless error.code is 'ENOENT'
-      console.log("#{modulename}: unable to read #{data_file}: ", error)
+      console.error("#{modulename}: unable to read #{data_file}: ", error)
 
   if config.admin_list?
     admins = config.admin_list.split ','
@@ -296,7 +296,7 @@ module.exports = (robot) ->
 
     is2fa: (user) ->
       un = @username(user)
-      return false unless un of auth_data.duo2fa
+      return false unless auth_data.duo2fa[un]
       return false unless moment().isBefore(auth_data.duo2fa[un])
       return true
 
@@ -315,7 +315,7 @@ module.exports = (robot) ->
 
     usersWithRole: (role) ->
       users = []
-      if role not in auth_data.roles
+      if role not of auth_data.roles
         return []
       return auth_data.roles[role]
 
@@ -344,9 +344,12 @@ module.exports = (robot) ->
       un = @username(user)
       return false unless un
       users = @usersWithRole(role)
-      user_idx = users.indexOf(un)
-      return false if user_idx == -1
-      auth_data.roles[role] = users.splice(user_idx, 1)
+      un_idx = users.indexOf(un)
+      return false if un_idx < 0
+      #console.log auth_data.roles[role], users, un, un_idx
+      users.splice(un_idx, 1)
+      auth_data.roles[role] = users
+      #console.log auth_data.roles[role], users, un, un_idx
       writeData()
       return true
 
