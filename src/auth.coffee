@@ -103,16 +103,13 @@ expirationWorker = ->
 expireEntries = ->
   removequeue = []
   for un, expiresdt of auth_data.duo2fa when moment(expiresdt).valueOf() < Date.now()
-    usermsg = "#{modulename}: #{un} 2fa grant has expired"
     removequeue.push un
-    robotRef.send { room: un }, usermsg
-    robotRef.logger.info usermsg
 
   if removequeue.length > 0
     while removequeue.length > 0
       delete auth_data.duo2fa[removequeue.shift()]
       usermsg = "#{modulename}: #{un} 2fa grant has expired"
-      robotRef.send { room: un }, usermsg
+      #robotRef.send { room: un }, usermsg
       robotRef.logger.info usermsg
     writeData()
 
@@ -122,29 +119,25 @@ addAuth = (robot, msg) ->
   un = msg.match[2].trim()
   if un.toLowerCase() is 'i' then un = who
 
-  newRole = msg.match[1].trim().toLowerCase()
+  role = msg.match[1].trim().toLowerCase()
 
   user = robot.brain.userForName(un)
   return msg.reply "#{un} does not exist" unless user?
-  user.roles or= []
 
-  if newRole in user.roles
-    return msg.reply "#{un} already has the '#{newRole}' role."
+  if robot.auth.hasRole(who,role)
+    return msg.reply "#{un} already has the `#{role}` role."
 
-  if newRole is 'admin'
-    errmsg = "Sorry, the 'admin' role can only be defined in the " +
-      "HUBOT_AUTH_ADMIN env variable."
+  if role is 'admin'
+    errmsg = "Sorry, the `admin` role can only be defined in the " +
+      "`HUBOT_AUTH_ADMIN` env variable."
     return msg.reply errmsg
 
-  myRoles = msg.message.user.roles or []
-  user.roles.push(newRole)
-  #writeData()
+  robot.auth.addRoleToUser(user,role)
 
-  logmsg = "#{modulename}: #{who} added '#{newRole}' " +
-    "role to '#{un}' user"
+  logmsg = "#{modulename}: #{who} added '#{role}' role to '#{un}' user"
   robot.logger.info logmsg
 
-  return msg.reply "OK, #{un} has the '#{newRole}' role."
+  return msg.reply "OK, #{un} has the `#{role}` role."
 
 
 authWho = (robot, msg) ->
@@ -157,7 +150,7 @@ authWho = (robot, msg) ->
   else
     user = msg.message.user
 
-  return msg.send "#{user.name} is #{user.id}"
+  return msg.send "#{user.name} is user id `#{user.id}`"
 
 
 removeAuth = (robot, msg) ->
@@ -165,26 +158,23 @@ removeAuth = (robot, msg) ->
   un = msg.match[2].trim()
   if un.toLowerCase() is 'i' then un = who
 
-  newRole = msg.match[1].trim().toLowerCase()
+  role = msg.match[1].trim().toLowerCase()
 
   user = robot.brain.userForName(un)
   return msg.reply "#{un} does not exist" unless user?
-  user.roles or= []
 
-  if newRole is 'admin'
+  if role is 'admin'
     errmsg = "Sorry, the 'admin' role can only be removed from the " +
       "HUBOT_AUTH_ADMIN env variable."
     return msg.reply errmsg
 
-  myRoles = msg.message.user.roles or []
-  user.roles = (role for role in user.roles when role isnt newRole)
-  #writeData()
+  robot.auth.removeRoleFromUser(user,role)
 
-  logmsg = "#{modulename}: #{who} removed '#{newRole}' " +
+  logmsg = "#{modulename}: #{who} removed '#{role}' " +
     "role from '#{un}' user"
   robot.logger.info logmsg
 
-  return msg.reply "OK, #{un} doesn't have the '#{newRole}' role."
+  return msg.reply "OK, #{un} doesn't have the `#{role}` role."
 
 
 listAuthRolesForUser = (robot, msg) ->
@@ -203,19 +193,17 @@ listAuthRolesForUser = (robot, msg) ->
 
 listAuthUsersWithRole = (robot, msg) ->
   role = msg.match[1]
-  userNames = robot.auth.usersWithRole(role) if role?
+  users = robot.auth.usersWithRole(role)
 
-  if userNames.length > 0
-    return msg.reply "Users with `#{role}` role: `#{userNames.join('`, `')}`"
+  if users.length > 0
+    return msg.reply "Users with `#{role}` role: `#{users.join('`, `')}`"
 
   return msg.reply "No one has `#{role}` role."
 
 
 listAuthRoles = (robot, msg) ->
-  roles = []
+  roles = robot.auth.roles()
 
-  for i, user of robot.brain.data.users when user.roles
-    roles.push role for role in user.roles when role not in roles
   if roles.length > 0
     return msg.reply "The following roles are available: #{roles.join(', ')}"
 
@@ -304,6 +292,11 @@ module.exports = (robot) ->
       return false unless moment().isBefore(auth_data.duo2fa[user.name])
       return true
 
+    roles: () ->
+      roles = []
+      roles.push role for role, users of auth_data.roles
+      return roles
+
     hasRole: (user, roles) ->
       userRoles = @userRoles(user)
       if userRoles?
@@ -314,18 +307,35 @@ module.exports = (robot) ->
 
     usersWithRole: (role) ->
       users = []
-      for own key, user of robot.brain.data.users
-        if @hasRole(user, role)
-          users.push(user.name)
-      users
+      if role not in auth_data.roles
+        return []
+      return auth_data.roles[role]
 
     userRoles: (user) ->
       roles = []
       if user? and robot.auth.isAdmin user
         roles.push('admin')
-      if user.roles?
-        roles = roles.concat user.roles
-      roles
+      if auth_data.roles?
+        for role, users of auth_data.roles when user in users
+          roles.push role
+      return roles
+
+    addRoleToUser: (user, role) ->
+      if role not in auth_data.roles
+        auth_data.roles[role] = [who]
+      else
+        auth_data.roles[role].push who
+      writeData()
+      return true
+
+    removeRoleFromUser: (user, role) ->
+      users = @usersWithRole(role)
+      user_idx = users.indexOf(user)
+      return false if user_idx == -1
+      users.splice(user_idx, 1)
+      auth_data.roles[role] = users
+      writeData()
+      return true
 
   robot.auth = new Auth
 
